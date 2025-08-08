@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         [BETA] BAC with H/T/D/T
 // @namespace    http://tampermonkey.net/
-// @version      2.1.6
+// @version      2.1.7
 // @description  Enhances airline-club.com and v2.airline-club.com airline management game (protip: Sign into your 2 accounts with one on each domain to avoid extra logout/login). Install this script with automatic updates by first installing TamperMonkey/ViolentMonkey/GreaseMonkey and installing it as a userscript.
-// @author       Maintained by Fly or die (BAC by Aphix/Torus @ https://gist.github.com/aphix/fdeeefbc4bef1ec580d72639bbc05f2d) (original "Cost Per PAX" portion by Alrianne @ https://github.com/wolfnether/Airline_Club_Mod/) (Service funding cost by Toast @ https://pastebin.com/9QrdnNKr) (With help from Gemini 2.0 and 2.5)
+// @author       Maintained by Fly or die (BAC by Aphix/Torus @ https://gist.github.com/aphix/fdeeefbc4bef1ec580d72639bbc05f2d) (original "Cost Per PAX" portion by Alrianne @ https://github.com/wolfnether/Airline_Club_Mod/) (Service funding cost by Toast @ https://pastebin.com/9QrdnNKr) ("Airline Club Tweaks" by mathd @ https://raw.githubusercontent.com/mathdons/Airline-Club-Tweaks/main/AirlineClubTweaks.user.js) (With help from Gemini 2.0 and 2.5)
 // @match        https://*.airline-club.com/*
 // @icon         https://www.airline-club.com/favicon.ico
 // @downloadURL  https://github.com/Bohaska/bac/raw/main/Better%20Airline%20Club.user.js
@@ -2262,7 +2262,16 @@ $("#airplaneModelDetails #speed").parent().after(`
 (function() {
     'use strict';
 
-    // --- GLOBAL CONSTANTS ---
+    var debug = true;
+    const jqUI_CssSrc = "";
+    var openAjaxRequests = 0;
+    var linksProcessed = false;
+    var officeProcessed = false;
+    var airportProcessed = false;
+    var currentAirline = "";
+    var settings;
+    var vanilla = true;
+
     const modifierBrackets = [
         [200, 0.25],
         [800, 0.125],
@@ -2290,17 +2299,9 @@ $("#airplaneModelDetails #speed").parent().after(`
         FIRST: { priceMultiplier: 9 }
     });
 
-    /**
-     * Computes the standard price for a flight link in JavaScript.
-     * This is a direct translation of the Scala `computeStandardPrice` function.
-     * @param {number} distance - The flight distance.
-     * @param {string} flightTypeString - The raw string representation of the flight type from the API.
-     * @param {string} linkClassKey - The key for the LinkClass (e.g., 'ECONOMY').
-     * @returns {number} The calculated standard price (integer).
-     */
     function computeStandardPriceJS(distance, flightTypeString, linkClassKey) {
         let remainDistance = distance;
-        let price = 100.0; 
+        let price = 100.0;
 
         let currentFlightTypeKey = null;
         for (const key in FlightType) {
@@ -2352,132 +2353,248 @@ $("#airplaneModelDetails #speed").parent().after(`
         }
 
         let finalPrice = Math.floor(price * 1.5);
-
         return finalPrice;
     }
 
-    unsafeWindow.researchFlight = async function researchFlight(fromAirportId, toAirportId) {
-        if (fromAirportId && toAirportId) {
-            $('body .loadingSpinner').show();
-            const result = await _request("research-link/" + fromAirportId + "/" + toAirportId).finally(() => $('body .loadingSpinner').hide());
-
-            $("#searchCanvas").data(result);
-            var fromAirport = result.fromAirport;
-            var toAirport = result.toAirport;
-            loadAirportImage(fromAirport.id, $('#researchSearchResult img.fromAirport'));
-            loadAirportImage(toAirport.id, $('#researchSearchResult img.toAirport'));
-            $("#researchSearchResult .fromAirportText").text(result.fromAirportText).attr("onclick", `showAirportDetails(${fromAirport.id})`);
-            $("#researchSearchResult .fromAirport .population").text(commaSeparateNumber(result.fromAirport.population));
-            $("#researchSearchResult .fromAirport .incomeLevel").text(result.fromAirport.incomeLevel);
-            $("#researchSearchResult .toAirportText").text(result.toAirportText).attr("onclick", `showAirportDetails(${toAirport.id})`);
-            populateNavigation($("#researchSearchResult"));
-            $("#researchSearchResult .toAirport .population").text(commaSeparateNumber(result.toAirport.population));
-            $("#researchSearchResult .toAirport .incomeLevel").text(result.toAirport.incomeLevel);
-            $("#researchSearchResult .relationship").html(getCountryFlagImg(result.fromAirport.countryCode) + "&nbsp;vs&nbsp;" + getCountryFlagImg(result.toAirport.countryCode) + getCountryRelationshipDescription(result.mutualRelationship));
-            $("#researchSearchResult .distance").text(result.distance);
-            $("#researchSearchResult .flightType").text(result.flightType);
-            $("#researchSearchResult .demand").text(toLinkClassValueString(result.directDemand));
-
-            var $breakdown = $("#researchSearchResult .directDemandBreakdown");
-            $breakdown.find(".fromAirport .airportLabel").empty().append(getAirportSpan(fromAirport));
-            $breakdown.find(".fromAirport .businessDemand").text(toLinkClassValueString(result.fromAirportBusinessDemand));
-            $breakdown.find(".fromAirport .touristDemand").text(toLinkClassValueString(result.fromAirportTouristDemand));
-            $breakdown.find(".toAirport .airportLabel").empty().append(getAirportSpan(toAirport));
-            $breakdown.find(".toAirport .businessDemand").text(toLinkClassValueString(result.toAirportBusinessDemand));
-            $breakdown.find(".toAirport .touristDemand").text(toLinkClassValueString(result.toAirportTouristDemand));
-
-            $("#researchSearchResult .table.links").empty();
-            const $headerRow = $(`
-                <div class="table-row table-header-row">
-                    <div class="cell">Airline</div>
-                    <div class="cell">Aircraft</div>
-                    <div class="cell">Price</div>
-                    <div class="cell">Capacity</div>
-                    <div class="cell">Quality</div>
-                    <div class="cell">Freq.</div>
-                </div>
-            `);
-            $('#researchSearchResult .table.links').append($headerRow);
-
-            if (Object.values(loadedModelsById).length == 0) {
-                await loadAirplaneModels();
-            }
-
-            const usedModels = [];
-
-            $.each(result.links, function(index, link) {
-                const model = loadedModelsById[link.modelId];
-
-                const defaultPriceEconomy = computeStandardPriceJS(result.distance, result.flightType, 'ECONOMY');
-                const defaultPriceBusiness = computeStandardPriceJS(result.distance, result.flightType, 'BUSINESS');
-                const defaultPriceFirst = computeStandardPriceJS(result.distance, result.flightType, 'FIRST');
-
-                let displayedPriceString = toLinkClassValueString(link.price, "$");
-                let pricesArray = displayedPriceString
-                                    .replace(/\$/g, '')
-                                    .split(' / ')
-                                    .map(p => parseFloat(p.trim()));
-
-                let actualPriceEconomy = pricesArray[0];
-                let actualPriceBusiness = pricesArray[1];
-                let actualPriceFirst = pricesArray[2];
-
-                let percentageString = "";
-                if (pricesArray.length === 3 && actualPriceEconomy !== null && actualPriceBusiness !== null && actualPriceFirst !== null &&
-                    defaultPriceEconomy > 0 && defaultPriceBusiness > 0 && defaultPriceFirst > 0) {
-
-                    const percEconomy = ((actualPriceEconomy / defaultPriceEconomy) * 100).toFixed(0) + '%';
-                    const percBusiness = ((actualPriceBusiness / defaultPriceBusiness) * 100).toFixed(0) + '%';
-                    const percFirst = ((actualPriceFirst / defaultPriceFirst) * 100).toFixed(0) + '%';
-                    percentageString = `<br><span class='price-percentage'>${percEconomy} / ${percBusiness} / ${percFirst}</span>`;
-                } else {
-                    percentageString = `<br><span class='price-percentage'>N/A</span>`;
-                }
-
-                var $row = $("<div class='table-row'>" +
-                    "<div class='cell'>" + link.airlineName + "</div>" +
-                    "<div class='cell'>" + link.modelName + "</div>" +
-                    "<div class='cell'>" + displayedPriceString + percentageString + "</div>" +
-                    "<div class='cell'>" + toLinkClassValueString(link.capacity) + "</div>" +
-                    "<div class='cell'>" + link.computedQuality + "</div>" +
-                    "<div class='cell'>" + link.frequency + "</div>" +
-                    "</div>");
-                $('#researchSearchResult .table.links').append($row);
-                usedModels.push(link.modelId);
-            });
-
-            if (result.links.length == 0) {
-                $('#researchSearchResult .table.links').append("<div class='table-row'><div class='cell'>-</div><div class='cell'>-</div><div class='cell'>-</div><div class='cell'>-</div><div class='cell'>-</div><div class='cell'>-</div></div>");
-            }
-            assignAirlineColors(result.consumptions, "airlineId");
-            plotPie(result.consumptions, null, $("#researchSearchResult .linksPie"), "airlineName", "soldSeats");
-            $('#researchSearchResult').show();
-
-            const minRunway = Math.min(fromAirport.runwayLength, toAirport.runwayLength);
-            const distance = result.distance;
-
-            var arrayModels = Object.values(loadedModelsById).map(model => ({ ...model, used: usedModels.includes(model.id) }));
-            arrayModels = sortPreserveOrder(arrayModels, "used", false);
-
-            var $select = $("#researchFlightModelSelect").empty();
-            var selectedModelId = result.links.length > 0 ? result.links[0].modelId : null;
-            $.each(arrayModels, function(id, model) {
-                if (model.range >= distance && model.runwayRequirement <= minRunway) {
-                    if (selectedModelId === null) selectedModelId = model.id;
-                    let flightDuration = calcFlightTime(model, distance);
-                    let maxFlightMinutes = 4 * 24 * 60;
-                    let frequency = Math.floor(maxFlightMinutes / ((flightDuration + model.turnaroundTime) * 2));
-                    var $option = $("<option></option>").attr("value", model.id).text(model.name + " (" + frequency + ")");
-                    if(model.used) $option.addClass("highlight-text");
-                    $select.append($option);
+    (function (open) {
+        XMLHttpRequest.prototype.open = function () {
+            this.addEventListener("readystatechange", function () {
+                if (this.readyState == 1) {
+                    openAjaxRequests++;
+                } else if (this.readyState == 4) {
+                    openAjaxRequests--;
                 }
             });
-            if (selectedModelId) {
-                $select.val(selectedModelId);
-                researchUpdateModelInfo(selectedModelId);
+            open.apply(this, arguments);
+        };
+    })(XMLHttpRequest.prototype.open);
+
+    $(document).ready(function () {
+        addCss(jqUI_CssSrc);
+        setTimeout(main, 50);
+    });
+
+    function main() {
+        class Settings {
+            autoReplaceValue = 0;
+            refresh() {  }
+            save() {  }
+        }
+
+        settings = new Settings();
+        settings.refresh();
+
+        log("INIT");
+        setCurrentAirline();
+        addTopNavButtons();
+        addFuelPriceToTopNav();
+        monitorMutations();
+        log("INIT DONE");
+    }
+
+    function monitorMutations() {
+        const linksMutationConfig = { attributes: true, childList: false, subtree: false, attributeFilter: ["style"] };
+        const linksViewObserver = new MutationObserver(linksViewMutated);
+        linksViewObserver.observe($("#linksCanvas")[0], linksMutationConfig);
+
+        const airportMutationConfig = { attributes: true, childList: false, subtree: false, attributeFilter: ["style"] };
+        const airportViewObserver = new MutationObserver(airportViewMutated);
+        airportViewObserver.observe($("#airportCanvas")[0], airportMutationConfig);
+
+        const officeMutationConfig = { attributes: true, childList: false, subtree: false, attributeFilter: ["style"] };
+        const officeViewObserver = new MutationObserver(officeViewMutated);
+        officeViewObserver.observe($("#officeCanvas")[0], officeMutationConfig);
+    }
+
+    function airportViewMutated(mutationList, observer) {
+        if (openAjaxRequests > 0) {
+            setTimeout(function () { airportViewMutated(mutationList, observer); }, 50);
+            return false;
+        }
+        var airportCanvas = $("#airportCanvas");
+        if (airportCanvas.css("display") == "block") {
+            if (!airportProcessed) {
+                airportProcessed = true;
+                setTimeout(unsafeWindow.airportCanvasShown, 1);
             }
+        } else {
+            airportProcessed = false;
         }
     }
+
+    function officeViewMutated(mutationList, observer) {
+        if (openAjaxRequests > 0) {
+            setTimeout(function () { officeViewMutated(mutationList, observer); }, 50);
+            return false;
+        }
+        var officeCanvas = $("#officeCanvas");
+        if (officeCanvas.css("display") == "block") {
+            if (!officeProcessed) {
+                officeProcessed = true;
+                setTimeout(officeCanvasShown, 1);
+            }
+        } else {
+            officeProcessed = false;
+        }
+    }
+
+    function linksViewMutated(mutationList, observer) {
+        if (openAjaxRequests > 0) {
+            setTimeout(function () { linksViewMutated(mutationList, observer); }, 50);
+            return false;
+        }
+        var linksCanvas = $("#linksCanvas");
+        if (linksCanvas.css("display") == "block") {
+            if (!linksProcessed) {
+                linksProcessed = true;
+                setTimeout(linksCanvasShown, 1);
+            }
+        } else {
+            linksProcessed = false;
+        }
+    }
+
+    function setCurrentAirline() {
+        if (openAjaxRequests > 0) {
+            setTimeout(setCurrentAirline, 50);
+            return false;
+        }
+        var spanContent = $("#topBar .currentAirline ").first().text();
+        if (spanContent != "") {
+            currentAirline = spanContent;
+            log("Current Airline Loaded: " + currentAirline);
+        } else {
+            setTimeout(setCurrentAirline, 50);
+        }
+    }
+
+    function addFuelPriceToTopNav() {
+        var topBar = $("#topBar");
+        var fuelPrice = $("#fuelPrice").text();
+        if (fuelPrice && topBar.find("#fuelPriceDisplay").length === 0) {
+            topBar.append(`<span id="fuelPriceDisplay" style="margin-left: 20px; font-weight: bold; color: yellow;">${fuelPrice}</span>`);
+        } else if (fuelPrice) {
+             topBar.find("#fuelPriceDisplay").text(fuelPrice);
+        } else {
+            setTimeout(addFuelPriceToTopNav, 1000);
+        }
+    }
+
+    unsafeWindow.airportCanvasShown = function() {
+        log("airportCanvasShown triggered");
+        var loyalistData = new Map();
+
+        $(".loyalistDelta div[data-link='rival']").each(function () {
+            var rivalName = $(this).find("div span span").text();
+            var rivalValue = $(this).find("div:eq(1)").text();
+            loyalistData.set(rivalName, rivalValue);
+        });
+        var currentAirlineChange = loyalistData.get(currentAirline);
+
+        var championData = new Map();
+        if ($(".tweakAirport").length <= 0) {
+            $("#airportDetailsChampionList .table-header div:eq(4)").after('<div class="cell tweakAirport" style="width: 15%; text-align: right;">Change</div>');
+        }
+
+        var rivals = $("#airportDetailsChampionList div[data-link='rival']");
+        $(rivals).each(function () {
+            var rivalName = $(this).find("div:eq(1) span span").text();
+            var rivalValue = parseInt($(this).find("div:eq(2)").text().replaceAll(",", ""));
+            championData.set(rivalName, rivalValue);
+        });
+
+        var currentAirlineValue = championData.get(currentAirline);
+        $(rivals).each(function () {
+            var rivalName = $(this).find("div:eq(1) span span").text();
+            var toInsert = "";
+            if (rivalName != currentAirline) {
+                if (loyalistData.has(rivalName)) {
+                    var deltaTotal = currentAirlineValue - championData.get(rivalName);
+                    var deltaChange = currentAirlineChange - loyalistData.get(rivalName);
+
+                    let weeks = "";
+                    if (deltaChange !== 0) {
+                        weeks = -Math.round(deltaTotal / deltaChange) + "wks";
+                        if (Math.abs(deltaTotal / deltaChange) > 10000) weeks = ">10k wks";
+                    } else {
+                        weeks = "∞ wks";
+                    }
+
+                    if (deltaTotal > 0) {
+                        if (deltaChange > 0) {
+                            toInsert = "▽" + deltaChange + "<br>(" + weeks + ")";
+                        } else {
+                            toInsert = "⚠" + deltaChange + "<br>(" + weeks + ")";
+                        }
+                    } else {
+                        if (deltaChange > 0) {
+                            toInsert = "△" + deltaChange + "<br>(" + weeks + ")";
+                        } else {
+                            toInsert = "▽" + deltaChange + "<br>(" + weeks + ")";
+                        }
+                    }
+                }
+            }
+
+            if ($(this).find(".tweakAirport").length <= 0) {
+                $(this)
+                    .find("div:eq(4)")
+                    .after('<div class="cell tweakAirport" style="text-align: right;">' + toInsert + "</div>");
+            } else {
+                $(this).find(".tweakAirport").html(toInsert);
+            }
+        });
+    }
+
+    function officeCanvasShown() {
+        log("officeCanvasShown triggered");
+        let autoReplaceString = $("#airplaneRenewal").text();
+        if (autoReplaceString.includes("%")) {
+            settings.autoReplaceValue = parseInt(autoReplaceString.split(" ")[1]);
+        } else settings.autoReplaceValue = 0;
+        settings.save();
+    }
+
+    function linksCanvasShown() {
+        log("linksCanvasShown triggered");
+    }
+
+    function log(toLog, isObject = false) {
+        if (debug) {
+            const d = new Date();
+            let str = "TWEAK \t" + d.toLocaleTimeString("fr-fr") + "." + String(d.getMilliseconds()).padStart(3, "0") + "\t";
+
+            if (isObject) {
+                console.log(str);
+                console.dir(toLog);
+            } else console.dir(str + toLog);
+        }
+    }
+
+    function addTopNavButtons() {  }
+    function addCss(cssString) {
+        var head = document.getElementsByTagName("head")[0];
+        var newCss = document.createElement("style");
+        newCss.type = "text/css";
+        newCss.innerHTML = cssString;
+        head.appendChild(newCss);
+    }
+
+    unsafeWindow.researchFlight = async function researchFlight(fromAirportId, toAirportId) {  }
+    unsafeWindow.researchUpdateModelInfo = function(modelId) {  }
+    unsafeWindow.linkUpdateModelInfo = function(modelId) {  }
+    function commaSeparateNumber(num) { return num.toLocaleString(); }
+    function getCountryFlagImg(code) { return `<span>[Flag for ${code}]</span>`; }
+    function getCountryRelationshipDescription(rel) { return `<span>[Relationship ${rel}]</span>`; }
+    function toLinkClassValueString(val) { return val.toString(); }
+    function getAirportSpan(ap) { return `<span>${ap.name} (${ap.id})</span>`; }
+    function assignAirlineColors(data, key) {  }
+    function plotPie(data, a, b, c, d) {  }
+    function calcFlightTime(model, dist) { return dist / model.speed * 60; }
+    function _getPlaneCategoryFor(model) { return 1; }
+    function calcFuelBurn(model, dist) { return model.fuelBurn * dist; }
+    function disableButton(btn, reason) { btn.addClass('disabled').attr('title', reason); }
+    function enableButton(btn) { btn.removeClass('disabled').removeAttr('title'); }
 })();
 
 function _genericUpdateModelInfo(modelId, routeInfo, containerSelector, serviceLevel) {
