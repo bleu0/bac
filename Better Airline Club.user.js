@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         [BETA] BAC with H/T/D/T
 // @namespace    http://tampermonkey.net/
-// @version      2.1.6
+// @version      2.1.7
 // @description  Enhances airline-club.com and v2.airline-club.com airline management game (protip: Sign into your 2 accounts with one on each domain to avoid extra logout/login). Install this script with automatic updates by first installing TamperMonkey/ViolentMonkey/GreaseMonkey and installing it as a userscript.
 // @author       Maintained by Fly or die (BAC by Aphix/Torus @ https://gist.github.com/aphix/fdeeefbc4bef1ec580d72639bbc05f2d) (original "Cost Per PAX" portion by Alrianne @ https://github.com/wolfnether/Airline_Club_Mod/) (Service funding cost by Toast @ https://pastebin.com/9QrdnNKr) (With help from Gemini 2.0 and 2.5)
 // @match        https://*.airline-club.com/*
@@ -1799,9 +1799,9 @@ unsafeWindow.updateAirplaneModelTable = function(sortProperty, sortOrder) {
         var plane_category = _getPlaneCategoryFor(plane);
         let flightDuration = calcFlightTime(plane, distance) ;
         let price = plane.price;
-        if( plane.originalPrice){
+        /* if( plane.originalPrice){
             price = plane.originalPrice;
-        }
+        } */
 
         let maxFlightMinutes = 4 * 24 * 60;
         let frequency = Math.floor(maxFlightMinutes / ((flightDuration + plane.turnaroundTime)*2));
@@ -2131,9 +2131,9 @@ unsafeWindow.updateModelInfo = function(modelId) {
     let durationInHour = linkModel.duration / 60;
 
     let price = model.price;
-    if( model.originalPrice){
+    /* if( model.originalPrice){
         price = model.originalPrice;
-    }
+    } */
     let baseDecayRate = 100 / model.lifespan;
 
     let maintenance = 0;
@@ -2262,7 +2262,6 @@ $("#airplaneModelDetails #speed").parent().after(`
 (function() {
     'use strict';
 
-    // --- GLOBAL CONSTANTS ---
     const modifierBrackets = [
         [200, 0.25],
         [800, 0.125],
@@ -2290,17 +2289,9 @@ $("#airplaneModelDetails #speed").parent().after(`
         FIRST: { priceMultiplier: 9 }
     });
 
-    /**
-     * Computes the standard price for a flight link in JavaScript.
-     * This is a direct translation of the Scala `computeStandardPrice` function.
-     * @param {number} distance - The flight distance.
-     * @param {string} flightTypeString - The raw string representation of the flight type from the API.
-     * @param {string} linkClassKey - The key for the LinkClass (e.g., 'ECONOMY').
-     * @returns {number} The calculated standard price (integer).
-     */
     function computeStandardPriceJS(distance, flightTypeString, linkClassKey) {
         let remainDistance = distance;
-        let price = 100.0; 
+        let price = 100.0;
 
         let currentFlightTypeKey = null;
         for (const key in FlightType) {
@@ -2388,13 +2379,13 @@ $("#airplaneModelDetails #speed").parent().after(`
 
             $("#researchSearchResult .table.links").empty();
             const $headerRow = $(`
-                <div class="table-row table-header-row">
-                    <div class="cell">Airline</div>
-                    <div class="cell">Aircraft</div>
-                    <div class="cell">Price</div>
-                    <div class="cell">Capacity</div>
-                    <div class="cell">Quality</div>
-                    <div class="cell">Freq.</div>
+                <div class='table-header'>
+                    <div class="cell" style="width: 25%;"><h5>Airline</h5></div>
+                    <div class="cell" style="width: 25%;"><h5>Aircraft</h5></div>
+                    <div class="cell" style="width: 15%;"><h5>Price</h5></div>
+                    <div class="cell" style="width: 15%;"><h5>Capacity</h5></div>
+                    <div class="cell" style="width: 10%;"><h5>Quality</h5></div>
+                    <div class="cell" style="width: 10%;"><h5>Freq.</h5></div>
                 </div>
             `);
             $('#researchSearchResult .table.links').append($headerRow);
@@ -2435,19 +2426,19 @@ $("#airplaneModelDetails #speed").parent().after(`
                 }
 
                 var $row = $("<div class='table-row'>" +
-                    "<div class='cell'>" + link.airlineName + "</div>" +
-                    "<div class='cell'>" + link.modelName + "</div>" +
-                    "<div class='cell'>" + displayedPriceString + percentageString + "</div>" +
-                    "<div class='cell'>" + toLinkClassValueString(link.capacity) + "</div>" +
-                    "<div class='cell'>" + link.computedQuality + "</div>" +
-                    "<div class='cell'>" + link.frequency + "</div>" +
+                    "<div class='cell' style='width: 25%;'>" + link.airlineName + "</div>" +
+                    "<div class='cell' style='width: 25%;'>" + link.modelName + "</div>" +
+                    "<div class='cell' style='width: 15%;'>" + displayedPriceString + percentageString + "</div>" +
+                    "<div class='cell' style='width: 15%;'>" + toLinkClassValueString(link.capacity) + "</div>" +
+                    "<div class='cell' style='width: 10%;'>" + link.computedQuality + "</div>" +
+                    "<div class='cell' style='width: 10%;'>" + link.frequency + "</div>" +
                     "</div>");
                 $('#researchSearchResult .table.links').append($row);
                 usedModels.push(link.modelId);
             });
 
             if (result.links.length == 0) {
-                $('#researchSearchResult .table.links').append("<div class='table-row'><div class='cell'>-</div><div class='cell'>-</div><div class='cell'>-</div><div class='cell'>-</div><div class='cell'>-</div><div class='cell'>-</div></div>");
+                $('#researchSearchResult .table.links').append("<div class='table-row'><div class='cell' style='width: 25%;'>-</div><div class='cell' style='width: 25%;'>-</div><div class='cell' style='width: 15%;'>-</div><div class='cell' style='width: 15%;'>-</div><div class='cell' style='width: 10%;'>-</div><div class='cell' style='width: 10%;'>-</div></div>");
             }
             assignAirlineColors(result.consumptions, "airlineId");
             plotPie(result.consumptions, null, $("#researchSearchResult .linksPie"), "airlineName", "soldSeats");
